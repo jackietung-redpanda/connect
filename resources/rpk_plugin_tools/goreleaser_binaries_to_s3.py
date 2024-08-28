@@ -282,6 +282,7 @@ def cli():
 @click.option("--plugin", required=True, help="Plugin to process. E.g. `connect`")
 @click.option("--goos", required=True, help="CSV list of OSes to process binaries for. E.g. 'linux,darwin'")
 @click.option("--goarch", required=True, help="CSV list of architectures to process binaries for. E.g. 'amd64,arm64'")
+@click.option("--deduce-version-from-tag", is_flag=True, help="Deduce version from tag in metadata.json")
 @click.option("--dry-run", is_flag=True)
 def upload_archives(
         artifacts_json: str,
@@ -291,14 +292,19 @@ def upload_archives(
         plugin: str,
         goos: str,
         goarch: str,
+        deduce_version_from_tag: bool,
         dry_run: bool
 ):
     goos_list = goos.split(",")
     goarch_list = goarch.split(",")
     plugin_config = get_plugin_config(plugin)
     artifacts = get_artifacts(artifacts_json)
-    version = get_metadata(metadata_json).version
+    if deduce_version_from_tag:
+        version = get_metadata(metadata_json).tag.lstrip("v")
+    else:
+        version = get_metadata(metadata_json).version
     artifacts_to_process = [a for a in artifacts if a.type == "Binary" and a.name == plugin_config.binary_name and a.goos in goos_list and a.goarch in goarch_list]
+    logging.info(f"Found {len(artifacts_to_process)} artifacts to process")
     create_and_upload_archives(
         plugin_config=plugin_config,
         artifacts=artifacts_to_process,

@@ -120,7 +120,6 @@ class S3BucketClient:
                                 Tagging=urllib.parse.urlencode(tags))
 
     def list_dir_recursive(self, s3_dir_path: str) -> list[str]:
-        # TODO test on loads of objects (>1000), ensure paging works
         paginator = self._client.get_paginator('list_objects_v2')
         pages = paginator.paginate(Bucket=self._bucket, Prefix=s3_dir_path.rstrip("/") + "/")
 

@@ -19,7 +19,6 @@ import click
 from pydantic import BaseModel
 
 
-# TODO add some unit tests
 # TODO add linter and type-checker
 
 
@@ -119,12 +118,18 @@ class S3BucketClient:
                                 CacheControl="max-age=1",
                                 Tagging=urllib.parse.urlencode(tags))
 
-    def list_dir_recursive(self, s3_dir_path: str) -> list[str]:
+    def list_dir_recursive(self, s3_dir_path: str | None = None) -> list[str]:
         paginator = self._client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=self._bucket, Prefix=s3_dir_path.rstrip("/") + "/")
+        if s3_dir_path is None:
+            pages = paginator.paginate(Bucket=self._bucket)
+        else:
+            pages = paginator.paginate(Bucket=self._bucket, Prefix=s3_dir_path)
 
         keys = []
         for page in pages:
+            # Indicates empty results, break out immediately
+            if 'Contents' not in page:
+                break
             for obj in page['Contents']:
                 keys.append(obj["Key"])
         return keys
@@ -213,7 +218,7 @@ def create_and_upload_manifest_json(plugin_config: PluginConfig, bucket: str, re
     # Event for dry-run mode, we will READ from S3 bucket. We just won't write anything to S3.
     # Therefore, S3 creds are needed even for --dry-run
     s3_bucket_client = S3BucketClient(bucket, region)
-    keys = s3_bucket_client.list_dir_recursive(plugin_config.get_archives_root_path())
+    keys = s3_bucket_client.list_dir_recursive(plugin_config.get_archives_root_path().rstrip('/') + '/')
 
     object_tags_for_keys = get_object_tags_for_keys(s3_bucket_client, keys)
 
@@ -274,8 +279,8 @@ def cli():
 
 
 @cli.command(name="upload-archives")
-@click.option("--artifacts-json", required=True, help="artifacts.json file produced by `goreleaser`")
-@click.option("--metadata-json", required=True, help="metadata.json file produced by `goreleaser`")
+@click.option("--artifacts-file", required=True, help="artifacts.json file produced by `goreleaser`")
+@click.option("--metadata-file", required=True, help="metadata.json file produced by `goreleaser`")
 @click.option("--region", required=True)
 @click.option("--bucket", required=True)
 @click.option("--plugin", required=True, help="Plugin to process. E.g. `connect`")
@@ -284,8 +289,8 @@ def cli():
 @click.option("--deduce-version-from-tag", is_flag=True, help="Deduce version from tag in metadata.json")
 @click.option("--dry-run", is_flag=True)
 def upload_archives(
-        artifacts_json: str,
-        metadata_json: str,
+        artifacts_file: str,
+        metadata_file: str,
         region: str,
         bucket: str,
         plugin: str,
@@ -297,12 +302,13 @@ def upload_archives(
     goos_list = goos.split(",")
     goarch_list = goarch.split(",")
     plugin_config = get_plugin_config(plugin)
-    artifacts = get_artifacts(artifacts_json)
+    artifacts = get_artifacts(artifacts_file)
     if deduce_version_from_tag:
-        version = get_metadata(metadata_json).tag.lstrip("v")
+        version = get_metadata(metadata_file).tag.lstrip("v")
     else:
-        version = get_metadata(metadata_json).version
-    artifacts_to_process = [a for a in artifacts if a.type == "Binary" and a.name == plugin_config.binary_name and a.goos in goos_list and a.goarch in goarch_list]
+        version = get_metadata(metadata_file).version
+    artifacts_to_process = [a for a in artifacts if
+                            a.type == "Binary" and a.name == plugin_config.binary_name and a.goos in goos_list and a.goarch in goarch_list]
     logging.info(f"Found {len(artifacts_to_process)} artifacts to process")
     create_and_upload_archives(
         plugin_config=plugin_config,
